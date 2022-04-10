@@ -188,6 +188,15 @@ creates a variant of the command that will only run for the current line.
 
     This is akin to calling the |hop.hint_anywhere| Lua function.
 
+`:HopLineCursor`                                                  *:HopLineCursor*
+`:HopLineCursorBC`                                              *:HopLineCursorBC*
+`:HopLineCursorAC`                                              *:HopLineCursorAC*
+`:HopLineCursorMW`                                              *:HopLineCursorMW*
+    Like `HopLine` but target to the cursor column on every line.
+
+    This is akin to calling the |hop.hint_lines_cursor| Lua function.
+
+
                                                                    *hop-lua-api*
 Lua API~
 
@@ -313,8 +322,13 @@ Most of the functions and values you need to know about are in `hop`.
 `hop.hint_anywhere(`{opts}`)`                                   *hop.hint_anywhere*
     Annotate anywhere in the current window with key sequences.
 
+`hop.hint_lines_cursor(`{opts}`)`                            *hop.hint_lines_cursor*
+    Hint the cursor column of each lines currently visible in the buffer view
+    and allow to jump to them.
+
     Arguments:~
         {opts}  Hop options.
+
 
 Hint API~
 

@@ -513,6 +513,17 @@ function M.hint_lines_skip_whitespace(opts)
   )
 end
 
+function M.hint_lines_cursor(opts)
+  opts = override_opts(opts)
+
+  local generator = jump_target.jump_targets_by_scanning_lines
+
+  M.hint_with(
+    generator(jump_target.regex_by_line_cursor()),
+    opts
+  )
+end
+
 function M.hint_anywhere(opts)
   opts = override_opts(opts)
 

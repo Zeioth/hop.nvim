@@ -2,7 +2,7 @@ local hint = require'hop.hint'
 
 local M = {}
 
-local function window_context(win_handle, cursor_pos)
+local function window_context(buf_handle, win_handle, cursor_pos)
   -- get a bunch of information about the window and the cursor
   vim.api.nvim_set_current_win(win_handle)
   local win_info = vim.fn.getwininfo(win_handle)[1]
@@ -24,9 +24,13 @@ local function window_context(win_handle, cursor_pos)
     win_width = win_info.width - left_col_offset
   end
 
+  local cursor_line = vim.api.nvim_buf_get_lines(buf_handle, cursor_pos[1] - 1, cursor_pos[1], false)[1]
+  local cursor_vcol = vim.fn.strdisplaywidth(cursor_line:sub(1, cursor_pos[2])) - win_view.leftcol
+
   return {
     hwin = win_handle,
     cursor_pos = cursor_pos,
+    cursor_vcol = cursor_vcol,
     top_line = top_line,
     bot_line = bot_line,
     win_width = win_width,
@@ -39,11 +43,14 @@ end
 -- {
 --   { -- context list that each contains one buffer
 --      hbuf = <buf-handle>,
---      { -- windows list that display the same buffer
---         hwin = <win-handle>,
+--      contexts = { -- windows list that display the same buffer
+--         { hwin = <win-handle>, ...}
 --         ...
 --      },
 --      ...
+--   },
+--   {
+--      hbuf = ...
 --   },
 --   ...
 -- }
@@ -55,7 +62,7 @@ function M.get_window_context(multi_windows)
   local cur_hbuf = vim.api.nvim_win_get_buf(cur_hwin)
   all_ctxs[#all_ctxs + 1] = {
     hbuf = cur_hbuf,
-    contexts = { window_context(cur_hwin, vim.api.nvim_win_get_cursor(cur_hwin)) },
+    contexts = { window_context(cur_hbuf, cur_hwin, vim.api.nvim_win_get_cursor(cur_hwin)) },
   }
 
   if not multi_windows then
@@ -77,11 +84,11 @@ function M.get_window_context(multi_windows)
       end
 
       if bctx then
-        bctx[#bctx + 1] = window_context(w, vim.api.nvim_win_get_cursor(w))
+        bctx[#bctx + 1] = window_context(b, w, vim.api.nvim_win_get_cursor(w))
       else
         all_ctxs[#all_ctxs + 1] = {
           hbuf = b,
-          contexts = { window_context(w, vim.api.nvim_win_get_cursor(w)) }
+          contexts = { window_context(b, w, vim.api.nvim_win_get_cursor(w)) }
         }
       end
 

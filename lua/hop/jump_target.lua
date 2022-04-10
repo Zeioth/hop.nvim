@@ -122,10 +122,16 @@ local function mark_jump_targets_line(buf_handle, win_context, line_context, reg
     return jump_targets
   end
 
+  -- match context for regex match
+  local match_context = {
+    cursor_vcol = win_context.cursor_vcol,
+    direction = direction,
+  }
+
   local col = 1
   while true do
     local s = shifted_line:sub(col)
-    local b, e = regex.match(s)
+    local b, e = regex.match(s, match_context)
 
     if b == nil then
       break
@@ -376,6 +382,23 @@ function M.regex_by_line_start_skip_whitespace()
     oneshot = true,
     match = function(s)
       return pat:match_str(s)
+    end
+  }
+end
+
+-- Column regex that targets to cursor column of line
+function M.regex_by_line_cursor()
+  return {
+    oneshot = true,
+    match = function(s, mctx)
+      if mctx.direction == hint.HintDirection.AFTER_CURSOR then
+        return 0, 1
+      end
+      local idx = str_col2char(s, mctx.cursor_vcol)
+      local col = vim.fn.byteidx(s, idx)
+      if -1 < col and col < #s then
+        return col, col + 1
+      end
     end
   }
 end
