@@ -39,7 +39,7 @@ end
 -- Create hint state
 --
 -- {
---  all_ctxs: All all windows's context
+--  all_ctxs: All windows's context
 --  buf_list: All buffers displayed in all windows
 --  <xxx>_ns: Required namespaces
 -- }
@@ -171,7 +171,7 @@ local function add_virt_cur(ns)
 end
 
 -- Get pattern from input for hint and preview
-local function get_input_pattern(prompt, maxchar, opts)
+function M.get_input_pattern(prompt, maxchar, opts)
   local hs = {}
   if opts then
     hs = create_hint_state(opts)
@@ -182,7 +182,9 @@ local function get_input_pattern(prompt, maxchar, opts)
 
   local K_Esc = vim.api.nvim_replace_termcodes('<Esc>', true, false, true)
   local K_BS = vim.api.nvim_replace_termcodes('<BS>', true, false, true)
+  local K_C_H = vim.api.nvim_replace_termcodes('<C-H>', true, false, true)
   local K_CR = vim.api.nvim_replace_termcodes('<CR>', true, false, true)
+  local K_NL = vim.api.nvim_replace_termcodes('<NL>', true, false, true)
   local pat_keys = {}
   local pat = ''
 
@@ -204,7 +206,10 @@ local function get_input_pattern(prompt, maxchar, opts)
     vim.api.nvim_echo({{prompt, 'Question'}, {pat}}, false, {})
 
     local ok, key = pcall(vim.fn.getchar)
-    if not ok then break end -- Interrupted by <C-c>
+    if not ok then -- Interrupted by <C-c>
+      pat = nil
+      break
+    end
 
     if type(key) == 'number' then
       key = vim.fn.nr2char(key)
@@ -215,9 +220,9 @@ local function get_input_pattern(prompt, maxchar, opts)
     if key == K_Esc then
       pat = nil
       break
-    elseif key == K_CR then
+    elseif key == K_CR or key == K_NL then
       break
-    elseif key == K_BS then
+    elseif key == K_BS or key == K_C_H then
       pat_keys[#pat_keys] = nil
     else
       pat_keys[#pat_keys + 1] = key
@@ -383,7 +388,10 @@ function M.quit(hint_state)
   clear_namespace(hint_state.buf_list, hint_state.dim_ns)
 
   for _, buf in ipairs(hint_state.buf_list) do
-    if vim.fn.has("nvim-0.6") == 1 then
+    -- sometimes, buffers might be unloaded; that’s the case with floats for instance (we can invoke Hop from them but
+    -- then they disappear); we need to check whether the buffer is still valid before trying to do anything else with
+    -- it
+    if vim.api.nvim_buf_is_valid(buf) and vim.fn.has("nvim-0.6") == 1 then
       for ns in pairs(hint_state.diag_ns) do vim.diagnostic.show(ns, buf) end
     end
   end
@@ -416,7 +424,7 @@ function M.hint_patterns(opts, pattern)
   else
     vim.cmd('redraw')
     vim.fn.inputsave()
-    pat = get_input_pattern('Hop pattern: ', nil, opts)
+    pat = M.get_input_pattern('Hop pattern: ', nil, opts)
     vim.fn.inputrestore()
     if not pat then return end
   end
@@ -442,7 +450,7 @@ end
 function M.hint_char1(opts)
   opts = override_opts(opts)
 
-  local c = get_input_pattern('Hop 1 char: ', 1)
+  local c = M.get_input_pattern('Hop 1 char: ', 1)
   if not c then
     return
   end
@@ -463,7 +471,7 @@ end
 function M.hint_char2(opts)
   opts = override_opts(opts)
 
-  local c = get_input_pattern('Hop 2 char: ', 2)
+  local c = M.get_input_pattern('Hop 2 char: ', 2)
   if not c then
     return
   end

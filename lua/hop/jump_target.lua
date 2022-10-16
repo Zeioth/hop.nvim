@@ -398,6 +398,8 @@ function M.regex_by_line_cursor()
       local col = vim.fn.byteidx(s, idx)
       if -1 < col and col < #s then
         return col, col + 1
+      else
+        return #s - 1, #s
       end
     end
   }
