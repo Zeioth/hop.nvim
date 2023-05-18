@@ -365,12 +365,18 @@ function M.regex_by_word_start()
 end
 
 -- Line regex.
-function M.regex_by_line_start()
-  local pat = vim.regex("^")
+function M.by_line_start()
+  local c = vim.fn.winsaveview().leftcol
+
   return {
     oneshot = true,
     match = function(s)
-      return pat:match_str(s)
+      local l = vim.fn.strdisplaywidth(s)
+      if c > 0 and l == 0 then
+        return nil
+      end
+
+      return 0, 1
     end
   }
 end
