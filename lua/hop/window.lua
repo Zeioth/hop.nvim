@@ -2,7 +2,7 @@ local hint = require'hop.hint'
 
 local M = {}
 
-local function window_context(buf_handle, win_handle, cursor_pos)
+local function window_context(win_handle, cursor_pos)
   -- get a bunch of information about the window and the cursor
   vim.api.nvim_set_current_win(win_handle)
   local win_info = vim.fn.getwininfo(win_handle)[1]
@@ -24,13 +24,9 @@ local function window_context(buf_handle, win_handle, cursor_pos)
     win_width = win_info.width - left_col_offset
   end
 
-  local cursor_line = vim.api.nvim_buf_get_lines(buf_handle, cursor_pos[1] - 1, cursor_pos[1], false)[1]
-  local cursor_vcol = vim.fn.strdisplaywidth(cursor_line:sub(1, cursor_pos[2])) - win_view.leftcol
-
   return {
     hwin = win_handle,
     cursor_pos = cursor_pos,
-    cursor_vcol = cursor_vcol,
     top_line = top_line,
     bot_line = bot_line,
     win_width = win_width,
@@ -43,14 +39,11 @@ end
 -- {
 --   { -- context list that each contains one buffer
 --      hbuf = <buf-handle>,
---      contexts = { -- windows list that display the same buffer
---         { hwin = <win-handle>, ...}
+--      { -- windows list that display the same buffer
+--         hwin = <win-handle>,
 --         ...
 --      },
 --      ...
---   },
---   {
---      hbuf = ...
 --   },
 --   ...
 -- }
@@ -60,9 +53,10 @@ function M.get_window_context(multi_windows, excluded_filetypes)
   -- Generate contexts of windows
   local cur_hwin = vim.api.nvim_get_current_win()
   local cur_hbuf = vim.api.nvim_win_get_buf(cur_hwin)
+
   all_ctxs[#all_ctxs + 1] = {
     hbuf = cur_hbuf,
-    contexts = { window_context(cur_hbuf, cur_hwin, vim.api.nvim_win_get_cursor(cur_hwin)) },
+    contexts = { window_context(cur_hwin, {vim.fn.line('.'), vim.fn.charcol('.')} ) },
   }
 
   if not multi_windows then
@@ -84,11 +78,11 @@ function M.get_window_context(multi_windows, excluded_filetypes)
         end
 
         if bctx then
-          bctx[#bctx + 1] = window_context(b, w, vim.api.nvim_win_get_cursor(w))
+          bctx[#bctx + 1] = window_context(w, vim.api.nvim_win_get_cursor(w))
         else
           all_ctxs[#all_ctxs + 1] = {
             hbuf = b,
-            contexts = { window_context(b, w, vim.api.nvim_win_get_cursor(w)) }
+            contexts = { window_context(w, vim.api.nvim_win_get_cursor(w)) }
           }
         end
       end
@@ -110,8 +104,7 @@ function M.get_lines_context(buf_handle, context)
   local lines = {}
 
   local lnr = context.top_line
-  local last_line = vim.api.nvim_buf_line_count(buf_handle) - 1
-  while lnr <= math.min(context.bot_line, last_line) do
+  while lnr < context.bot_line do -- top_line is inclusive and bot_line is exclusive
     local fold_end = vim.api.nvim_win_call(context.hwin,
       function()
         return vim.fn.foldclosedend(lnr + 1) -- `foldclosedend()` use 1-based line number
@@ -140,7 +133,7 @@ end
 -- If the direction is HintDirection.AFTER_CURSOR, then everything before the cursor will be clipped.
 function M.clip_window_context(context, direction)
   if direction == hint.HintDirection.BEFORE_CURSOR then
-    context.bot_line = context.cursor_pos[1] - 1
+    context.bot_line = context.cursor_pos[1]
   elseif direction == hint.HintDirection.AFTER_CURSOR then
     context.top_line = context.cursor_pos[1] - 1
   end

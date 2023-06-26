@@ -44,7 +44,6 @@
 
 local hint = require'hop.hint'
 local window = require'hop.window'
-local mappings = require'hop.mappings'
 
 local M = {}
 
@@ -54,89 +53,45 @@ function M.manh_dist(a, b, x_bias)
   return bias * math.abs(b[1] - a[1]) + math.abs(b[2] - a[2])
 end
 
--- Return the character index of col position in line
--- col index is 1-based in cell, char index returned is 0-based
-local function str_col2char(line, col)
-  if col <= 0 then
-    return 0
-  end
-
-  local lw = vim.fn.strdisplaywidth(line)
-  local lc = vim.fn.strchars(line)
-  -- No multi-byte character
-  if lw == lc then
-    return col
-  end
-  -- Line is shorter than col, all line should include
-  if lw <= col then
-    return lc
-  end
-
-  local lst
-  if lc >= col then
-    -- Line is very long
-    lst = vim.fn.split(vim.fn.strcharpart(line, 0, col), '\\zs')
-  else
-    lst = vim.fn.split(line, '\\zs')
-  end
-  local i = 0
-  local w = 0
-  repeat
-    i = i + 1
-    w = w + vim.fn.strdisplaywidth(lst[i])
-  until (w >= col)
-  return i
-end
-
 -- Mark the current line with jump targets.
 --
 -- Returns the jump targets as described above.
-local function mark_jump_targets_line(buf_handle, win_context, line_context, regex, direction, hint_position)
+local function mark_jump_targets_line(buf_handle, win_handle, regex, line_context, col_offset, win_width, direction_mode, hint_position)
   local jump_targets = {}
   local end_index = nil
 
-  if win_context.win_width ~= nil then
-    end_index = win_context.col_offset + win_context.win_width
+  if win_width ~= nil then
+    end_index = col_offset + win_width
   else
     end_index = vim.fn.strdisplaywidth(line_context.line)
   end
 
-  -- Handle shifted_line with str_col2char for multiple-bytes chars
-  local left_idx = str_col2char(line_context.line, win_context.col_offset)
-  local right_idx = str_col2char(line_context.line, end_index)
-  local shifted_line = vim.fn.strcharpart(line_context.line, left_idx, right_idx - left_idx)
-  local col_bias = vim.fn.byteidx(line_context.line, left_idx)
+  local shifted_line = line_context.line:sub(1 + col_offset, vim.fn.byteidx(line_context.line, end_index))
 
   -- modify the shifted line to take the direction mode into account, if any
   -- FIXME: we also need to do that for the cursor
-  if direction == hint.HintDirection.AFTER_CURSOR then
-    -- we want to change the start offset so that we ignore everything before the cursor
-    shifted_line = shifted_line:sub(win_context.cursor_pos[2] - col_bias + 1)
-    col_bias = win_context.cursor_pos[2]
-  elseif direction == hint.HintDirection.BEFORE_CURSOR then
-    -- we want to change the end
-    shifted_line = shifted_line:sub(1, win_context.cursor_pos[2] - col_bias + 1)
+  local col_bias = 0
+  if direction_mode ~= nil then
+    local col = vim.fn.byteidx(line_context.line, direction_mode.cursor_col + 1)
+    if direction_mode.direction == hint.HintDirection.AFTER_CURSOR then
+      -- we want to change the start offset so that we ignore everything before the cursor
+      shifted_line = shifted_line:sub(col - col_offset)
+      col_bias = col - 1
+    elseif direction_mode.direction == hint.HintDirection.BEFORE_CURSOR then
+      -- we want to change the end
+      shifted_line = shifted_line:sub(1, col - col_offset)
+    end
   end
-  if shifted_line == "" and win_context.col_offset > 0 then
-    -- No possible position to place target
-    return jump_targets
-  end
-
-  -- match context for regex match
-  local match_context = {
-    cursor_vcol = win_context.cursor_vcol,
-    direction = direction,
-  }
 
   local col = 1
   while true do
     local s = shifted_line:sub(col)
-    local b, e = regex.match(s, match_context)
+    local b, e = regex.match(s)
 
-    if b == nil then
+    if b == nil or (b == 0 and e == 0) then
       break
     end
-    -- Preview need a length to highlight the matched string. Zero means nothingh to highlight.
+    -- Preview need a length to highlight the matched string. Zero means nothing to highlight.
     local matched_length = e - b
     -- As the make for jump target must be placed at a cell (but some pattern like '^' is
     -- placed between cells), we should make sure e > b
@@ -152,20 +107,16 @@ local function mark_jump_targets_line(buf_handle, win_context, line_context, reg
     end
     jump_targets[#jump_targets + 1] = {
       line = line_context.line_nr,
-      column = math.max(1, colp + col_bias),
+      column = math.max(1, colp + col_offset + col_bias),
       length = math.max(0, matched_length),
       buffer = buf_handle,
-      window = win_context.hwin,
+      window = win_handle,
     }
 
     if regex.oneshot then
       break
     else
       col = col + e
-    end
-
-    if col > #shifted_line then
-      break
     end
   end
 
@@ -180,25 +131,37 @@ end
 -- Indirect jump targets are used later to sort jump targets by score and create hints.
 local function create_jump_targets_for_line(
   buf_handle,
-  win_context,
-  line_context,
+  win_handle,
   jump_targets,
   indirect_jump_targets,
   regex,
-  direction,
-  hint_position
+  col_offset,
+  win_width,
+  cursor_pos,
+  direction_mode,
+  hint_position,
+  line_context
 )
   -- first, create the jump targets for the ith line
-  local line_jump_targets = mark_jump_targets_line(buf_handle, win_context, line_context, regex, direction, hint_position)
+  local line_jump_targets = mark_jump_targets_line(
+    buf_handle,
+    win_handle,
+    regex,
+    line_context,
+    col_offset,
+    win_width,
+    direction_mode,
+    hint_position
+  )
 
   -- then, append those to the input jump target list and create the indexed jump targets
-  local win_bias = math.abs(vim.api.nvim_get_current_win() - win_context.hwin) * 1000
+  local win_bias = math.abs(vim.api.nvim_get_current_win() - win_handle) * 1000
   for _, jump_target in pairs(line_jump_targets) do
     jump_targets[#jump_targets + 1] = jump_target
 
     indirect_jump_targets[#indirect_jump_targets + 1] = {
       index = #jump_targets,
-      score = M.manh_dist(win_context.cursor_pos, { jump_target.line, jump_target.column }) + win_bias
+      score = M.manh_dist(cursor_pos, { jump_target.line, jump_target.column }) + win_bias
     }
   end
 end
@@ -236,19 +199,81 @@ function M.jump_targets_by_scanning_lines(regex)
         -- in the case of a direction, we want to treat the first or last line (according to the direction) differently
         if opts.direction == hint.HintDirection.AFTER_CURSOR then
           -- the first line is to be checked first
-          create_jump_targets_for_line(bctx.hbuf, wctx, lines[1], jump_targets, indirect_jump_targets, regex, opts.direction, opts.hint_position)
+          create_jump_targets_for_line(
+            bctx.hbuf,
+            wctx.hwin,
+            jump_targets,
+            indirect_jump_targets,
+            regex,
+            wctx.col_offset,
+            wctx.win_width,
+            wctx.cursor_pos,
+            { cursor_col = wctx.cursor_pos[2], direction = opts.direction },
+            opts.hint_position,
+            lines[1]
+          )
+
           for i = 2, #lines do
-            create_jump_targets_for_line(bctx.hbuf, wctx, lines[i], jump_targets, indirect_jump_targets, regex, nil, opts.hint_position)
+            create_jump_targets_for_line(
+              bctx.hbuf,
+              wctx.hwin,
+              jump_targets,
+              indirect_jump_targets,
+              regex,
+              wctx.col_offset,
+              wctx.win_width,
+              wctx.cursor_pos,
+              nil,
+              opts.hint_position,
+              lines[i]
+            )
           end
         elseif opts.direction == hint.HintDirection.BEFORE_CURSOR then
           -- the last line is to be checked last
           for i = 1, #lines - 1 do
-            create_jump_targets_for_line(bctx.hbuf, wctx, lines[i], jump_targets, indirect_jump_targets, regex, nil, opts.hint_position)
+            create_jump_targets_for_line(
+              bctx.hbuf,
+              wctx.hwin,
+              jump_targets,
+              indirect_jump_targets,
+              regex,
+              wctx.col_offset,
+              wctx.win_width,
+              wctx.cursor_pos,
+              nil,
+              opts.hint_position,
+              lines[i]
+            )
           end
-          create_jump_targets_for_line(bctx.hbuf, wctx, lines[#lines], jump_targets, indirect_jump_targets, regex, opts.direction, opts.hint_position)
+
+          create_jump_targets_for_line(
+            bctx.hbuf,
+            wctx.hwin,
+            jump_targets,
+            indirect_jump_targets,
+            regex,
+            wctx.col_offset,
+            wctx.win_width,
+            wctx.cursor_pos,
+            { cursor_col = wctx.cursor_pos[2], direction = opts.direction },
+            opts.hint_position,
+            lines[#lines]
+          )
         else
           for i = 1, #lines do
-            create_jump_targets_for_line(bctx.hbuf, wctx, lines[i], jump_targets, indirect_jump_targets, regex, nil, opts.hint_position)
+            create_jump_targets_for_line(
+              bctx.hbuf,
+              wctx.hwin,
+              jump_targets,
+              indirect_jump_targets,
+              regex,
+              wctx.col_offset,
+              wctx.win_width,
+              wctx.cursor_pos,
+              nil,
+              opts.hint_position,
+              lines[i]
+            )
           end
         end
 
@@ -272,13 +297,16 @@ function M.jump_targets_for_current_line(regex)
 
     create_jump_targets_for_line(
       0,
-      context,
-      { line_nr = line_n - 1, line = line[1] },
+      0,
       jump_targets,
       indirect_jump_targets,
       regex,
-      opts.direction,
-      opts.hint_position
+      context.col_offset,
+      context.win_width,
+      context.cursor_pos,
+      { cursor_col = context.cursor_pos[2], direction = opts.direction },
+      opts.hint_position,
+      { line_nr = line_n - 1, line = line[1] }
     )
 
     M.sort_indirect_jump_targets(indirect_jump_targets, opts)
@@ -320,41 +348,37 @@ function M.regex_by_searching(pat, plain_search)
   if plain_search then
     pat = vim.fn.escape(pat, '\\/.$^~[]')
   end
-  local re = vim.regex(pat)
+
+  local regex = vim.regex(pat)
+
   return {
     oneshot = false,
     match = function(s)
-      return re:match_str(s)
+      return regex:match_str(s)
     end
   }
 end
 
 -- Wrapper over M.regex_by_searching to add support for case sensitivity.
 function M.regex_by_case_searching(pat, plain_search, opts)
-  local pat_special = ''
-  if vim.o.smartcase then
-    if not starts_with_uppercase(pat) then
-      pat_special = '\\c'
-    end
-  elseif opts.case_insensitive then
-    pat_special = '\\c'
-  end
-
-  local pat_mappings = mappings.checkout(pat, opts)
-
   if plain_search then
     pat = vim.fn.escape(pat, '\\/.$^~[]')
   end
-  if pat_mappings ~= '' then
-    pat = string.format([[\(%s\)\|\(%s\)]], pat, pat_mappings)
-  end
-  pat = pat .. pat_special
 
-  local re = vim.regex(pat)
+  if vim.o.smartcase then
+    if not starts_with_uppercase(pat) then
+      pat = '\\c' .. pat
+    end
+  elseif opts.case_insensitive then
+    pat = '\\c' .. pat
+  end
+
+  local regex = vim.regex(pat)
+
   return {
     oneshot = false,
     match = function(s)
-      return re:match_str(s)
+      return regex:match_str(s)
     end
   }
 end
@@ -381,32 +405,26 @@ function M.by_line_start()
   }
 end
 
--- Line regex skipping finding the first non-whitespace character on each line.
-function M.regex_by_line_start_skip_whitespace()
-  local pat = vim.regex("\\S")
+-- Line regex at cursor position.
+function M.regex_by_vertical()
+  local position = vim.api.nvim_win_get_cursor(0)[2]
+  local regex = vim.regex(string.format("^.\\{0,%d\\}\\(.\\|$\\)", position))
   return {
     oneshot = true,
     match = function(s)
-      return pat:match_str(s)
+      return regex:match_str(s)
     end
   }
 end
 
--- Column regex that targets to cursor column of line
-function M.regex_by_line_cursor()
+-- Line regex skipping finding the first non-whitespace character on each line.
+function M.regex_by_line_start_skip_whitespace()
+  local regex = vim.regex("\\S")
+
   return {
     oneshot = true,
-    match = function(s, mctx)
-      if mctx.direction == hint.HintDirection.AFTER_CURSOR then
-        return 0, 1
-      end
-      local idx = str_col2char(s, mctx.cursor_vcol)
-      local col = vim.fn.byteidx(s, idx)
-      if -1 < col and col < #s then
-        return col, col + 1
-      else
-        return #s - 1, #s
-      end
+    match = function(s)
+      return regex:match_str(s)
     end
   }
 end

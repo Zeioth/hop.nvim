@@ -47,17 +47,17 @@ command! HopLineBC lua require'hop'.hint_lines({ direction = require'hop.hint'.H
 command! HopLineAC lua require'hop'.hint_lines({ direction = require'hop.hint'.HintDirection.AFTER_CURSOR })
 command! HopLineMW lua require'hop'.hint_lines({ multi_windows = true })
 
-" The jump-to-line command.
+" The jump-to-line command (non-whitespace).
 command! HopLineStart   lua require'hop'.hint_lines_skip_whitespace()
 command! HopLineStartBC lua require'hop'.hint_lines_skip_whitespace({ direction = require'hop.hint'.HintDirection.BEFORE_CURSOR })
 command! HopLineStartAC lua require'hop'.hint_lines_skip_whitespace({ direction = require'hop.hint'.HintDirection.AFTER_CURSOR })
 command! HopLineStartMW lua require'hop'.hint_lines_skip_whitespace({ multi_windows = true })
 
-" The jump-to-line-cursor command.
-command! HopLineCursor   lua require'hop'.hint_lines_cursor()
-command! HopLineCursorBC lua require'hop'.hint_lines_cursor({ direction = require'hop.hint'.HintDirection.BEFORE_CURSOR })
-command! HopLineCursorAC lua require'hop'.hint_lines_cursor({ direction = require'hop.hint'.HintDirection.AFTER_CURSOR })
-command! HopLineCursorMW lua require'hop'.hint_lines_cursor({ multi_windows = true })
+" The vertical command (line jump preserving the column cursor position).
+command! HopVertical   lua require'hop'.hint_vertical()
+command! HopVerticalBC lua require'hop'.hint_vertical({ direction = require'hop.hint'.HintDirection.BEFORE_CURSOR })
+command! HopVerticalAC lua require'hop'.hint_vertical({ direction = require'hop.hint'.HintDirection.AFTER_CURSOR })
+command! HopVerticalMW lua require'hop'.hint_vertical({ multi_windows = true })
 
 " The jump-to-anywhere command.
 command! HopAnywhere              lua require'hop'.hint_anywhere()

@@ -178,6 +178,14 @@ creates a variant of the command that will only run for the current line.
 
     This is akin to calling the |hop.hint_lines_skip_whitespace| Lua function.
 
+`:HopVertical`                                                      *:HopVertical*
+`:HopVerticalBC`                                                  *:HopVerticalBC*
+`:HopVerticalAC`                                                  *:HopVerticalAC*
+`:HopVerticalMW`                                                  *:HopVerticalMW*
+    Like `HopLine` but keeps the column position of the cursor.
+
+    This is akin to calling the |hop.hint_vertical| Lua function.
+
 `:HopAnywhere`                                                      *:HopAnywhere*
 `:HopAnywhereBC`                                                  *:HopAnywhereBC*
 `:HopAnywhereAC`                                                  *:HopAnywhereAC*
@@ -188,15 +196,6 @@ creates a variant of the command that will only run for the current line.
     Annotate anywhere with key sequences.
 
     This is akin to calling the |hop.hint_anywhere| Lua function.
-
-`:HopLineCursor`                                                  *:HopLineCursor*
-`:HopLineCursorBC`                                              *:HopLineCursorBC*
-`:HopLineCursorAC`                                              *:HopLineCursorAC*
-`:HopLineCursorMW`                                              *:HopLineCursorMW*
-    Like `HopLine` but target to the cursor column on every line.
-
-    This is akin to calling the |hop.hint_lines_cursor| Lua function.
-
 
                                                                    *hop-lua-api*
 Lua API~
@@ -320,16 +319,21 @@ Most of the functions and values you need to know about are in `hop`.
     Arguments:~
         {opts}  Hop options.
 
-`hop.hint_anywhere(`{opts}`)`                                   *hop.hint_anywhere*
-    Annotate anywhere in the current window with key sequences.
+`hop.hint_vertical(`{opts}`)`                                    *hop.hint_vertical*
+    Hint the cursor position of each lines currently visible in the buffer
+    view and allow to jump to them. If the line is shorter than the current
+    cursor column position, it will default to the end of the line.
 
-`hop.hint_lines_cursor(`{opts}`)`                            *hop.hint_lines_cursor*
-    Hint the cursor column of each lines currently visible in the buffer view
-    and allow to jump to them.
+    This works with empty lines as well.
 
     Arguments:~
         {opts}  Hop options.
 
+`hop.hint_anywhere(`{opts}`)`                                   *hop.hint_anywhere*
+    Annotate anywhere in the current window with key sequences.
+
+    Arguments:~
+        {opts}  Hop options.
 
 Hint API~
 
@@ -743,6 +747,18 @@ below.
     Defaults:~
         `hint_position = require'hop.hint'.HintPosition.BEGIN`
 
+`hint_offset`                                             *hop-config-hint_offset*
+    Offset to apply to a jump location.
+
+    If it is non-zero, the jump target will be offset horizontally from the
+    selected jump position by `hint_offset` character(s).
+
+    This option can be used for emulating the motion commands |t| and |T| where
+    the cursor is positioned on/before the target position.
+
+    Defaults:~
+        `hint_offset = 0`
+
 `current_line_only`                                 *hop-config-current_line_only*
     Apply Hop commands only to the current line.
 
@@ -789,22 +805,6 @@ below.
 
     Defaults:~
         `multi_windows = false`
-
-`match_mappings`
-    What match mappings to use when hint. If `match_mappings` is not empty, the
-    hint char or pattern will act as key of dict of mappings, and get the dict
-    pattern to search.
-
-    Currently supported mappings:~
-        'zh' : Basic characters for Chinese
-        'zh_sc' : Simplified Chinese
-        'zh_tc' : Traditional Chinese
-
-    For example, if `match_mappings` is set to `{'zh', 'zh_sc'}`, the characters
-    in 'zh' and 'zh_sc' can be mixed match together.
-
-    Defaults:~
-        `match_mappings = { }`
 
 `excluded_filetypes`
     Skip hinting windows with the excluded filetypes. Those windows to check

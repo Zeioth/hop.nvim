@@ -1,3 +1,9 @@
+local defaults = require'hop.defaults'
+local hint = require'hop.hint'
+local jump_target = require'hop.jump_target'
+local prio = require'hop.priority'
+local window = require'hop.window'
+
 local M = {}
 
 -- Ensure options are sound.
@@ -38,8 +44,6 @@ end
 --  <xxx>_ns: Required namespaces
 -- }
 local function create_hint_state(opts)
-  local window = require'hop.window'
-
   local hint_state = {}
 
   -- get all window's context and buffer list
@@ -83,9 +87,6 @@ end
 -- - top_line is the top line in the buffer to start highlighting at
 -- - bottom_line is the bottom line in the buffer to stop highlighting at
 local function set_unmatched_lines(buf_handle, hl_ns, top_line, bottom_line, cursor_pos, direction, current_line_only)
-  local hint = require'hop.hint'
-  local prio = require'hop.priority'
-
   local start_line = top_line
   local end_line = bottom_line
   local start_col = 0
@@ -94,9 +95,8 @@ local function set_unmatched_lines(buf_handle, hl_ns, top_line, bottom_line, cur
   if direction == hint.HintDirection.AFTER_CURSOR then
     start_col = cursor_pos[2]
   elseif direction == hint.HintDirection.BEFORE_CURSOR then
-    if cursor_pos[2] ~= 0 then
-      end_col = cursor_pos[2] + 1
-    end
+    end_line = bottom_line - 1
+    if cursor_pos[2] ~= 0 then end_col = cursor_pos[2] end
   end
 
   if current_line_only then
@@ -109,19 +109,30 @@ local function set_unmatched_lines(buf_handle, hl_ns, top_line, bottom_line, cur
     end
   end
 
-  vim.api.nvim_buf_set_extmark(buf_handle, hl_ns, start_line, start_col, {
+  local extmark_options = {
     end_line = end_line,
-    end_col = end_col,
     hl_group = 'HopUnmatched',
     hl_eol = true,
     priority = prio.DIM_PRIO
-  })
+  }
+
+  if end_col then
+    local current_line = vim.api.nvim_buf_get_lines(buf_handle, cursor_pos[1] - 1, cursor_pos[1], true)[1]
+    local current_width = vim.fn.strdisplaywidth(current_line)
+
+    if end_col > current_width then
+      end_col = current_width - 1
+    end
+
+    extmark_options.end_col = end_col
+  end
+
+  vim.api.nvim_buf_set_extmark(buf_handle, hl_ns, start_line, start_col,
+                               extmark_options)
 end
 
 -- Dim everything out to prepare the Hop session for all windows.
 local function apply_dimming(hint_state, opts)
-  local window = require'hop.window'
-
   for _, bctx in ipairs(hint_state.all_ctxs) do
     for _, wctx in ipairs(bctx.contexts) do
       window.clip_window_context(wctx, opts.direction)
@@ -143,8 +154,6 @@ end
 -- - the current line is empty
 -- - there are multibyte characters on the line
 local function add_virt_cur(ns)
-  local prio = require'hop.priority'
-
   local cur_info = vim.fn.getcurpos()
   local cur_row = cur_info[2] - 1
   local cur_col = cur_info[3] - 1 -- this gives cursor column location, in bytes
@@ -184,9 +193,6 @@ end
 
 -- Get pattern from input for hint and preview
 function M.get_input_pattern(prompt, maxchar, opts)
-  local hint = require'hop.hint'
-  local jump_target = require'hop.jump_target'
-
   local hs = {}
   if opts then
     hs = create_hint_state(opts)
@@ -260,11 +266,34 @@ function M.get_input_pattern(prompt, maxchar, opts)
 end
 
 -- Move the cursor at a given location.
+--
+-- Add option to shift cursor by column offset
+--
 -- This function will update the jump list.
-function M.move_cursor_to(w, line, column)
+function M.move_cursor_to(w, line, column, hint_offset, direction)
+  -- If we do not ask for an offset jump, we don’t have to retrieve any additional lines because we will jump to the
+  -- actual jump target. If we do want a jump with an offset, we need to retrieve the line the jump target lies in so
+  -- that we can compute the offset correctly. This is linked to the fact that currently, Neovim doesn’s have an API to
+  -- « offset something by N visual columns. »
+
+  -- If it is pending for operator shift column to the right by 1
+  if vim.api.nvim_get_mode().mode == 'no' and direction ~= 1 then
+    column = column + 1
+  end
+
+  if hint_offset ~= nil and not (hint_offset == 0) then
+    -- Add `hint_offset` based on `charidx`.
+    local buf_line = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(w), line - 1, line, false)[1]
+    -- Since `charidx` returns -1 when `column` is the tail, subtract 1 and add 1 to the return value to get
+    -- the correct value.
+    local char_idx = vim.fn.charidx(buf_line, column - 1) + 1 + hint_offset
+    column = vim.fn.byteidx(buf_line, char_idx)
+  end
+
+  -- update the jump list
   vim.cmd("normal! m'")
   vim.api.nvim_set_current_win(w)
-  vim.api.nvim_win_set_cursor(w, { line, column})
+  vim.api.nvim_win_set_cursor(w, { line, column })
 end
 
 function M.hint_with(jump_target_gtr, opts)
@@ -273,13 +302,11 @@ function M.hint_with(jump_target_gtr, opts)
   end
 
   M.hint_with_callback(jump_target_gtr, opts, function(jt)
-    M.move_cursor_to(jt.window, jt.line + 1, jt.column - 1)
+    M.move_cursor_to(jt.window, jt.line + 1, jt.column - 1, opts.hint_offset, opts.direction)
   end)
 end
 
 function M.hint_with_callback(jump_target_gtr, opts, callback)
-  local hint = require'hop.hint'
-
   if opts == nil then
     opts = override_opts(opts)
   end
@@ -369,8 +396,6 @@ end
 -- Refining hints allows to advance the state machine by one step. If a terminal step is reached, this function jumps to
 -- the location. Otherwise, it stores the new state machine.
 function M.refine_hints(key, hint_state, callback, opts)
-  local hint = require'hop.hint'
-
   local h, hints = hint.reduce_hints(hint_state.hints, key)
 
   if h == nil then
@@ -415,8 +440,6 @@ function M.quit(hint_state)
 end
 
 function M.hint_words(opts)
-  local jump_target = require'hop.jump_target'
-
   opts = override_opts(opts)
 
   local generator
@@ -433,8 +456,6 @@ function M.hint_words(opts)
 end
 
 function M.hint_patterns(opts, pattern)
-  local jump_target = require'hop.jump_target'
-
   opts = override_opts(opts)
 
   -- The pattern to search is either retrieved from the (optional) argument
@@ -469,8 +490,6 @@ function M.hint_patterns(opts, pattern)
 end
 
 function M.hint_char1(opts)
-  local jump_target = require'hop.jump_target'
-
   opts = override_opts(opts)
 
   local c = M.get_input_pattern('Hop 1 char: ', 1)
@@ -492,8 +511,6 @@ function M.hint_char1(opts)
 end
 
 function M.hint_char2(opts)
-  local jump_target = require'hop.jump_target'
-
   opts = override_opts(opts)
 
   local c = M.get_input_pattern('Hop 2 char: ', 2)
@@ -515,8 +532,6 @@ function M.hint_char2(opts)
 end
 
 function M.hint_lines(opts)
-  local jump_target = require'hop.jump_target'
-
   opts = override_opts(opts)
 
   local generator
@@ -532,9 +547,27 @@ function M.hint_lines(opts)
   )
 end
 
-function M.hint_lines_skip_whitespace(opts)
-  local jump_target = require'hop.jump_target'
+function M.hint_vertical(opts)
+  opts = override_opts(opts)
+  -- only makes sense as end position given movement goal.
+  opts.hint_position = require'hop.hint'.HintPosition.END
 
+  local generator
+  if opts.current_line_only then
+    generator = jump_target.jump_targets_for_current_line
+  else
+    generator = jump_target.jump_targets_by_scanning_lines
+  end
+
+  -- FIXME: need to exclude current and include empty lines.
+  M.hint_with(
+    generator(jump_target.regex_by_vertical()),
+    opts
+  )
+end
+
+
+function M.hint_lines_skip_whitespace(opts)
   opts = override_opts(opts)
 
   local generator
@@ -550,22 +583,7 @@ function M.hint_lines_skip_whitespace(opts)
   )
 end
 
-function M.hint_lines_cursor(opts)
-  local jump_target = require'hop.jump_target'
-
-  opts = override_opts(opts)
-
-  local generator = jump_target.jump_targets_by_scanning_lines
-
-  M.hint_with(
-    generator(jump_target.regex_by_line_cursor()),
-    opts
-  )
-end
-
 function M.hint_anywhere(opts)
-  local jump_target = require'hop.jump_target'
-
   opts = override_opts(opts)
 
   local generator
@@ -584,16 +602,8 @@ end
 -- Setup user settings.
 function M.setup(opts)
   -- Look up keys in user-defined table with fallback to defaults.
-  M.opts = setmetatable(opts or {}, {__index = require'hop.defaults'})
+  M.opts = setmetatable(opts or {}, {__index = defaults})
   M.initialized = true
-
-  -- Load dict of match mappings
-  for _, d in ipairs(M.opts.match_mappings) do
-    local val = require('hop.mappings.' .. d)
-    if val ~= nil then
-      M.opts.match_mappings[d] = val
-    end
-  end
 
   -- Insert the highlights and register the autocommand if asked to.
   local highlight = require'hop.highlight'
